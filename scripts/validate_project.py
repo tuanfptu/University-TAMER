@@ -1,0 +1,66 @@
+"""Fail-fast audit before spending GPU hours on a training run."""
+
+import argparse
+import csv
+import json
+from pathlib import Path
+
+
+def read_csv(path: Path):
+    with path.open("r", encoding="utf-8", newline="") as stream:
+        return list(csv.DictReader(stream))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data-root", default="data/university")
+    parser.add_argument("--hme-cache", default="data/hme_cache")
+    parser.add_argument("--dictionary", required=True)
+    parser.add_argument("--checkpoint", required=True)
+    args = parser.parse_args()
+    root = Path(args.data_root)
+    manifests = {
+        "train": root / "splits" / "train_clean.csv",
+        "validation": root / "splits" / "validation_fixed.csv",
+        "test": root / "splits" / "test_fixed.csv",
+    }
+    expected = {"train": 10000, "validation": 1000, "test": 1000}
+    vocabulary = {line.strip() for line in Path(args.dictionary).read_text(encoding="utf-8").splitlines() if line.strip()}
+    rows = {}
+    for split, path in manifests.items():
+        rows[split] = read_csv(path)
+        assert len(rows[split]) == expected[split], "{} has {} rows, expected {}".format(
+            split, len(rows[split]), expected[split]
+        )
+        for row in rows[split]:
+            missing = set(row["label"].split()) - vocabulary
+            assert not missing, "OOV {} in {}".format(sorted(missing), row["sample_id"])
+            assert (root / row["image_path"]).is_file(), "Missing image {}".format(row["image_path"])
+    labels = {split: {row["label"] for row in split_rows} for split, split_rows in rows.items()}
+    leakage = {
+        "train_validation": len(labels["train"] & labels["validation"]),
+        "train_test": len(labels["train"] & labels["test"]),
+        "validation_test": len(labels["validation"] & labels["test"]),
+    }
+    assert not any(leakage.values()), "Canonical-label leakage: {}".format(leakage)
+    replay = read_csv(Path(args.hme_cache) / "replay.csv")
+    hme_validation = read_csv(Path(args.hme_cache) / "validation.csv")
+    assert replay, "Empty HME replay cache"
+    assert hme_validation, "Empty HME validation cache"
+    checkpoint = Path(args.checkpoint)
+    assert checkpoint.is_file(), "Missing checkpoint {}".format(checkpoint)
+    report = {
+        "status": "PASS",
+        "split_sizes": {name: len(value) for name, value in rows.items()},
+        "unique_labels": {name: len(value) for name, value in labels.items()},
+        "label_leakage": leakage,
+        "hme_replay_size": len(replay),
+        "hme_validation_size": len(hme_validation),
+        "vocabulary_size_without_special_tokens": len(vocabulary),
+        "checkpoint": str(checkpoint.resolve()),
+    }
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()
