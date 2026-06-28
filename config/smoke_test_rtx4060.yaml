@@ -1,0 +1,45 @@
+seed: 7
+pretrained_checkpoint: lightning_logs/version_3/checkpoints/epoch=55-step=175503-val_ExpRate=0.6954.ckpt
+output_dir: outputs/smoke_test_rtx4060
+auto_calibrate_hme_baseline: false
+
+trainer:
+  gpus: 1
+  max_epochs: 1
+  limit_train_batches: 20
+  limit_val_batches: 5
+  num_sanity_val_steps: 0
+  accumulate_grad_batches: 8
+  gradient_clip_val: 5.0
+  precision: 16
+  deterministic: true
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 1
+  early_stopping_patience: 1
+
+model_overrides:
+  learning_rate: 0.00005
+  patience: 2
+  weight_decay: 0.0001
+  freeze_encoder_epochs: 0
+  hme_baseline_exprate: 0.6954
+  max_hme_drop: 0.02
+  retention_penalty: 10.0
+  beam_size: 3
+  prediction_output_dir: outputs/smoke_test_rtx4060/predictions
+
+data:
+  dictionary: data/HME100k/dictionary.txt
+  university_train_manifest: data/university/splits/train_clean.csv
+  university_val_manifest: data/university/splits/validation_fixed.csv
+  hme_replay_manifest: data/hme_cache/replay.csv
+  hme_val_manifest: data/hme_cache/validation.csv
+  university_data_root: data/university
+  hme_cache_root: data/hme_cache
+  background_dir: data/paper_backgrounds_processed/train
+  train_batch_size: 4
+  eval_batch_size: 1
+  replay_ratio: 0.40
+  dynamic_augmentation: true
+  num_workers: 2
+  seed: 7
