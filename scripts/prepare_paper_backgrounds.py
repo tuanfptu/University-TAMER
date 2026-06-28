@@ -117,7 +117,7 @@ def main() -> None:
             metrics = audit(destination)
             report.append(
                 {
-                    "source": str(source),
+                    "source": source.relative_to(source_root).as_posix(),
                     "output": destination.relative_to(output_root).as_posix(),
                     "paper_type": paper_type,
                     "split": split,
