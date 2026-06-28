@@ -115,8 +115,9 @@ class LitUniversityTAMER(LitTAMER):
         records = []
         categories = batch.categories or ["unknown"] * len(batch)
         sources = batch.sources or ["unknown"] * len(batch)
-        for name, hyp, truth, category, source in zip(
-            batch.img_bases, hyps, batch.indices, categories, sources
+        severities = batch.severities or ["unknown"] * len(batch)
+        for name, hyp, truth, category, source, severity in zip(
+            batch.img_bases, hyps, batch.indices, categories, sources, severities
         ):
             records.append(
                 {
@@ -125,6 +126,7 @@ class LitUniversityTAMER(LitTAMER):
                     "gt_tokens": vocab.indices2words(truth),
                     "category": category,
                     "source": source,
+                    "severity": severity,
                 }
             )
         return records

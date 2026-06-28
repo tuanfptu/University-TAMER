@@ -3,6 +3,7 @@
 import argparse
 import csv
 import json
+from collections import Counter
 from pathlib import Path
 
 
@@ -43,6 +44,15 @@ def main() -> None:
         "validation_test": len(labels["validation"] & labels["test"]),
     }
     assert not any(leakage.values()), "Canonical-label leakage: {}".format(leakage)
+    severity_expected = {
+        "validation": {"mild": 600, "medium": 300, "hard": 100},
+        "test": {"mild": 300, "medium": 400, "hard": 300},
+    }
+    severity_counts = {}
+    for split in ("validation", "test"):
+        counts = dict(Counter(row.get("severity", "missing") for row in rows[split]))
+        assert counts == severity_expected[split], "Unexpected {} severity counts: {}".format(split, counts)
+        severity_counts[split] = counts
     replay = read_csv(Path(args.hme_cache) / "replay.csv")
     hme_validation = read_csv(Path(args.hme_cache) / "validation.csv")
     assert replay, "Empty HME replay cache"
@@ -54,6 +64,7 @@ def main() -> None:
         "split_sizes": {name: len(value) for name, value in rows.items()},
         "unique_labels": {name: len(value) for name, value in labels.items()},
         "label_leakage": leakage,
+        "severity_counts": severity_counts,
         "hme_replay_size": len(replay),
         "hme_validation_size": len(hme_validation),
         "vocabulary_size_without_special_tokens": len(vocabulary),

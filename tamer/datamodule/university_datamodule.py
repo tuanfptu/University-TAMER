@@ -73,7 +73,14 @@ class FormulaManifestDataset(Dataset):
         if self.augmenter is not None:
             image = self.augmenter(image, seed=_augmentation_seed(self.seed, epoch, row["sample_id"]))
         tensor = to_tensor(image)
-        return row["sample_id"], tensor, row["label"].split(), row["category"], row["source"]
+        return (
+            row["sample_id"],
+            tensor,
+            row["label"].split(),
+            row["category"],
+            row["source"],
+            row.get("severity", "dynamic" if self.augmenter is not None else "unknown"),
+        )
 
 
 class CombinedDataset(Dataset):
@@ -166,6 +173,7 @@ def collate_formula_samples(samples: Sequence[Tuple]) -> Batch:
     labels = [vocab.words2indices(sample[2]) for sample in samples]
     categories = [sample[3] for sample in samples]
     sources = [sample[4] for sample in samples]
+    severities = [sample[5] for sample in samples]
     heights = [image.size(1) for image in images]
     widths = [image.size(2) for image in images]
     batch = torch.zeros(len(images), 1, max(heights), max(widths))
@@ -173,7 +181,15 @@ def collate_formula_samples(samples: Sequence[Tuple]) -> Batch:
     for index, image in enumerate(images):
         batch[index, :, : heights[index], : widths[index]] = image
         mask[index, : heights[index], : widths[index]] = 0
-    return Batch(names, batch, mask, labels, categories=categories, sources=sources)
+    return Batch(
+        names,
+        batch,
+        mask,
+        labels,
+        categories=categories,
+        sources=sources,
+        severities=severities,
+    )
 
 
 class UniversityDataModule(pl.LightningDataModule):

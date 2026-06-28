@@ -110,6 +110,7 @@ class Batch:
     indices: List[List[int]]  # [b, l]
     categories: Optional[List[str]] = None
     sources: Optional[List[str]] = None
+    severities: Optional[List[str]] = None
 
     def __len__(self) -> int:
         return len(self.img_bases)
@@ -122,6 +123,7 @@ class Batch:
             indices=self.indices,
             categories=self.categories,
             sources=self.sources,
+            severities=self.severities,
         )
 
 

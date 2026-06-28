@@ -49,11 +49,21 @@ canonical label; nếu có label leakage, script dừng ngay. Mọi token OOV c�
 Sinh validation/test cố định đúng một lần:
 
 ```bash
+python scripts/prepare_paper_backgrounds.py \
+  --source data/paper_backgrounds \
+  --output data/paper_backgrounds_processed \
+  --seed 7
+
 python scripts/generate_fixed_splits.py \
   --data-root data/university \
-  --backgrounds data/paper_backgrounds \
+  --validation-backgrounds data/paper_backgrounds_processed/validation \
+  --test-backgrounds data/paper_backgrounds_processed/test \
   --seed 7
 ```
+
+Train dùng `paper_backgrounds_processed/train` với xác suất 70% nền ảnh
+thật và 30% nền procedural. Validation có 60/30/10 và test có
+30/40/30 mẫu mild/medium/hard; metric được báo cáo riêng theo severity.
 
 Xem trước augmentation trên một ảnh sạch:
 

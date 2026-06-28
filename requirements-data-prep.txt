@@ -1,0 +1,7 @@
+# Optional dependencies for converting iPhone HEIC paper-background photos.
+# Run this with Python 3.9+; it is not required on the training machine once
+# data/paper_backgrounds_processed has been created.
+Pillow>=10.0
+pillow-heif>=0.16
+numpy>=1.24
+opencv-python-headless>=4.8

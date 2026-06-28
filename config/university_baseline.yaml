@@ -33,7 +33,7 @@ data:
   hme_val_manifest: data/hme_cache/validation.csv
   university_data_root: data/university
   hme_cache_root: data/hme_cache
-  background_dir: data/paper_backgrounds
+  background_dir: data/paper_backgrounds_processed/train
   train_batch_size: 8
   eval_batch_size: 2
   replay_ratio: 0.40

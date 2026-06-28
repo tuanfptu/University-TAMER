@@ -18,27 +18,40 @@ class DynamicPaperAugmentation:
     def __init__(
         self,
         background_dir: Optional[str] = None,
+        real_background_probability: float = 0.70,
         mild_probability: float = 0.60,
         medium_probability: float = 0.30,
         max_height: int = 256,
         max_width: int = 1024,
     ) -> None:
         self.background_paths = []
+        self.background_groups = {}
         if background_dir and Path(background_dir).exists():
+            root = Path(background_dir)
             for suffix in ("*.jpg", "*.jpeg", "*.png", "*.bmp"):
-                self.background_paths.extend(Path(background_dir).rglob(suffix))
+                self.background_paths.extend(root.rglob(suffix))
+            for path in self.background_paths:
+                relative = path.relative_to(root)
+                group = relative.parts[0] if len(relative.parts) > 1 else "ungrouped"
+                self.background_groups.setdefault(group, []).append(path)
+        self.real_background_probability = real_background_probability
         self.mild_probability = mild_probability
         self.medium_probability = medium_probability
         self.max_height = max_height
         self.max_width = max_width
 
-    def _severity(self, rng: np.random.RandomState) -> Tuple[str, float]:
+    def _severity(self, rng: np.random.RandomState, forced: Optional[str] = None) -> Tuple[str, float]:
+        strengths = {"mild": 0.55, "medium": 1.0, "hard": 1.45}
+        if forced is not None:
+            if forced not in strengths:
+                raise ValueError("severity must be mild, medium or hard")
+            return forced, strengths[forced]
         draw = rng.rand()
         if draw < self.mild_probability:
-            return "mild", 0.55
+            return "mild", strengths["mild"]
         if draw < self.mild_probability + self.medium_probability:
-            return "medium", 1.0
-        return "hard", 1.45
+            return "medium", strengths["medium"]
+        return "hard", strengths["hard"]
 
     @staticmethod
     def _paper_pattern(height: int, width: int, rng: np.random.RandomState) -> np.ndarray:
@@ -72,20 +85,25 @@ class DynamicPaperAugmentation:
         spacing = int(rng.randint(22, 38))
         if kind in ("ruled", "grid"):
             offset = int(rng.randint(0, spacing))
-            line_value = float(base - rng.uniform(10, 24))
+            # Blue notebook rules become roughly 25-45 gray levels darker than
+            # white paper after grayscale conversion on real phone photos.
+            line_value = float(base - rng.uniform(35, 60))
             for y in range(offset, height, spacing):
                 # Slightly different opacity per line is closer to printed paper.
-                value = line_value + rng.uniform(-2, 2)
-                cv2.line(paper, (0, y), (width - 1, y), value, 1, cv2.LINE_AA)
+                value = line_value + rng.uniform(-3, 3)
+                thickness = 2 if height >= 150 and rng.rand() < 0.20 else 1
+                cv2.line(paper, (0, y), (width - 1, y), value, thickness, cv2.LINE_AA)
         if kind == "grid":
             for x in range(int(rng.randint(0, spacing)), width, spacing):
-                cv2.line(paper, (x, 0), (x, height - 1), base - rng.uniform(10, 25), 1, cv2.LINE_AA)
+                value = base - rng.uniform(30, 55)
+                thickness = 2 if width >= 700 and rng.rand() < 0.12 else 1
+                cv2.line(paper, (x, 0), (x, height - 1), value, thickness, cv2.LINE_AA)
         if kind == "ruled" and rng.rand() < 0.45:
             margin_x = int(rng.uniform(0.07, 0.16) * width)
-            cv2.line(paper, (margin_x, 0), (margin_x, height - 1), base - rng.uniform(14, 28), 1, cv2.LINE_AA)
+            cv2.line(paper, (margin_x, 0), (margin_x, height - 1), base - rng.uniform(45, 70), 1, cv2.LINE_AA)
         if kind == "worksheet" and rng.rand() < 0.7:
             y = int(rng.randint(5, max(6, height // 5)))
-            cv2.line(paper, (0, y), (width - 1, y), base - 15, 1, cv2.LINE_AA)
+            cv2.line(paper, (0, y), (width - 1, y), base - rng.uniform(20, 35), 1, cv2.LINE_AA)
 
         # Subtle fold and stain artefacts. Both are broad and low contrast.
         if rng.rand() < 0.13:
@@ -103,9 +121,15 @@ class DynamicPaperAugmentation:
         return np.clip(paper, 0, 255).astype(np.uint8)
 
     def _real_background(self, height: int, width: int, rng: np.random.RandomState) -> Optional[np.ndarray]:
-        if not self.background_paths or rng.rand() >= 0.55:
+        if not self.background_paths or rng.rand() >= self.real_background_probability:
             return None
-        path = self.background_paths[int(rng.randint(0, len(self.background_paths)))]
+        if self.background_groups:
+            group_names = sorted(self.background_groups)
+            group = group_names[int(rng.randint(0, len(group_names)))]
+            candidates = self.background_groups[group]
+        else:
+            candidates = self.background_paths
+        path = candidates[int(rng.randint(0, len(candidates)))]
         image = read_grayscale(path)
         if image is None:
             return None
@@ -256,18 +280,24 @@ class DynamicPaperAugmentation:
                 output = cv2.imdecode(encoded, cv2.IMREAD_GRAYSCALE)
         return output
 
-    def __call__(self, clean: np.ndarray, seed: Optional[int] = None) -> np.ndarray:
+    def __call__(
+        self,
+        clean: np.ndarray,
+        seed: Optional[int] = None,
+        severity: Optional[str] = None,
+    ) -> np.ndarray:
         rng = np.random.RandomState(seed) if seed is not None else np.random.RandomState()
         if clean.ndim == 3:
             clean = cv2.cvtColor(clean, cv2.COLOR_BGR2GRAY)
         clean = clean.astype(np.uint8)
-        _, strength = self._severity(rng)
+        _, strength = self._severity(rng, forced=severity)
         pad_y = int(rng.randint(8, 25))
         pad_x = int(rng.randint(12, 45))
         clean = cv2.copyMakeBorder(clean, pad_y, pad_y, pad_x, pad_x, cv2.BORDER_CONSTANT, value=255)
         height, width = clean.shape
         paper = self._real_background(height, width, rng)
-        if paper is None:
+        using_real_background = paper is not None
+        if not using_real_background:
             paper = self._paper_pattern(height, width, rng)
         mask = self._ink_mask(clean, rng, strength)
         ink_value = float(rng.choice((18, 35, 55, 75), p=(0.45, 0.30, 0.20, 0.05)))
@@ -275,12 +305,14 @@ class DynamicPaperAugmentation:
         output = np.clip(composite, 0, 255).astype(np.uint8)
         # Most samples are expression crops. A minority retain a page/desk edge,
         # matching phone photos without shrinking the formula in every sample.
-        if rng.rand() < (0.08 + 0.12 * strength):
+        if not using_real_background and rng.rand() < (0.08 + 0.12 * strength):
             output = self._page_on_desk(output, rng, strength)
         else:
-            output = self._perspective(output, rng, strength)
-        output = self._shadow_and_light(output, rng, strength)
-        output = self._camera_degradation(output, rng, strength)
+            transform_strength = strength * (0.40 if using_real_background else 1.0)
+            output = self._perspective(output, rng, transform_strength)
+        effect_strength = strength * (0.45 if using_real_background else 1.0)
+        output = self._shadow_and_light(output, rng, effect_strength)
+        output = self._camera_degradation(output, rng, effect_strength)
         scale = min(self.max_height / output.shape[0], self.max_width / output.shape[1], 1.0)
         if scale < 1.0:
             output = cv2.resize(output, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)

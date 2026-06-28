@@ -39,19 +39,20 @@ def compute_metrics(records: Sequence[dict]) -> Dict[str, float]:
     }
 
 
-def compute_category_metrics(records: Sequence[dict]) -> Dict[str, Dict[str, float]]:
+def compute_group_metrics(records: Sequence[dict], key: str) -> Dict[str, Dict[str, float]]:
     groups = defaultdict(list)
     for record in records:
-        groups[record.get("category") or "unknown"].append(record)
-    return {category: compute_metrics(rows) for category, rows in sorted(groups.items())}
+        groups[record.get(key) or "unknown"].append(record)
+    return {name: compute_metrics(rows) for name, rows in sorted(groups.items())}
 
 
 def write_metric_report(records: List[dict], output_dir: str, extra: dict = None) -> dict:
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     overall = compute_metrics(records)
-    categories = compute_category_metrics(records)
-    report = {"overall": overall, "by_category": categories}
+    categories = compute_group_metrics(records, "category")
+    severities = compute_group_metrics(records, "severity")
+    report = {"overall": overall, "by_category": categories, "by_severity": severities}
     if extra:
         report.update(extra)
     with (output / "metrics.json").open("w", encoding="utf-8") as stream:
@@ -70,4 +71,10 @@ def write_metric_report(records: List[dict], output_dir: str, extra: dict = None
         writer.writeheader()
         for category, metrics in categories.items():
             writer.writerow({"category": category, **{field: metrics[field] for field in fields[1:]}})
+    with (output / "severity_metrics.csv").open("w", encoding="utf-8", newline="") as stream:
+        fields = ["severity", "count", "ExpRate", "ExpRate_le_1", "ExpRate_le_2", "TokenErrorRate", "ValidLaTeX"]
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer.writeheader()
+        for severity, metrics in severities.items():
+            writer.writerow({"severity": severity, **{field: metrics[field] for field in fields[1:]}})
     return report
